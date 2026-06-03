@@ -2,6 +2,7 @@
 /*
  * Copyright 2022 NXP
  * Copyright 2023-2025 Variscite Ltd.
+ * PATH=C:\Users\firas.a\Documents\Github\var-mx93-fresh2\uboot-imx\include\configs\imx93_var_som.h
  */
 
 #ifndef __IMX93_VAR_SOM_H

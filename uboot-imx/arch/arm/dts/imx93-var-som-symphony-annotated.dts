@@ -1,0 +1,1041 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// This is a SPDX (Software Package Data Exchange) license identifier.
+// It's a machine-readable shorthand telling tools and lawyers:
+//   "This file is dual-licensed under GPL-2.0+ OR MIT"
+// It's NOT C code - it's a comment used by license scanners (e.g., REUSE, FOSSology).
+// In DTS files (like in C), // means single-line comment.
+
+/*
+ * Copyright 2021 NXP
+ * Copyright 2023-2025 Variscite Ltd.
+ */
+// This is a block comment, just like in C: /* ... */
+// It says who wrote (and legally owns) this file.
+// NXP wrote the base platform DTS; Variscite extended it for their SOM + Symphony board.
+
+/dts-v1/;
+// ^^^^^^^^
+// DTS MAGIC HEADER. This tells the Device Tree Compiler (dtc) that this file uses
+// Device Tree Source format version 1.
+// Think of it like a #pragma or file-format signature at the top of a C file.
+// Without this, dtc refuses to compile the file.
+// The semicolon at the end is REQUIRED — DTS is semicolon-terminated like C statements.
+
+#include "imx93-var-som.dtsi"
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// Just like #include in C, this pulls in another file at this exact location.
+// The .dtsi extension = "Device Tree Source Include" (like a .h header file in C).
+// "imx93-var-som.dtsi" defines all the hardware that lives ON the SOM itself
+// (the Variscite module): CPU, RAM, eMMC, Wi-Fi, PMIC, etc.
+// This file EXTENDS that by adding what's on the Symphony carrier BOARD.
+// This is the "board file" — it adds connectors, extra Ethernet, USB, SD card, etc.
+
+/ {
+// ^
+// This opens the ROOT NODE of the device tree.
+// In DTS syntax, nodes are written like structs in C: name { properties; child-nodes; }
+// The "/" node is the top of the tree — everything else is a child of this.
+// Think of it like the "main()" of the device tree — it's the entry point.
+
+	model = "Variscite VAR-SOM-MX93 on Symphony-Board";
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// "model" is a standard DT property (key = value).
+	// The "=" assigns a string value (in quotes) to the property name.
+	// The semicolon ends this statement — just like in C.
+	// This human-readable string shows up in: /proc/device-tree/model on the running Linux system.
+	// It's how you know which board you're running on at runtime.
+	// It has NO effect on hardware — it's purely informational / for logging.
+
+	aliases {
+	// ^^^^^^^
+	// The "aliases" node is a STANDARD device tree node (defined by the DT spec).
+	// It allows giving short names to other nodes in the tree.
+	// Think of it like a #define or a pointer shortcut in C.
+
+		ethernet1 = &fec;
+		// ^^^^^^^^^^^^^^^^
+		// This creates an alias: the name "ethernet1" now refers to the node &fec.
+		//
+		// THE & OPERATOR — super important to understand:
+		// In C, & means "address of" (gives you a pointer to a variable).
+		// In DTS, & means "reference to a node by its label".
+		//
+		// "fec" is a LABEL defined somewhere in the include files (imx93-var-som.dtsi
+		// or NXP's SoC DTS). A label looks like:   fec: ethernet@... { ... };
+		// The &fec here is a PHANDLE — a numeric reference to that node.
+		// The kernel resolves this at boot time to find the actual hardware node.
+		//
+		// Why "ethernet1"? Because ethernet0 is already the eQOS controller
+		// (on the SOM). This second Ethernet (FEC controller) becomes eth1 in Linux.
+		// The kernel uses aliases[] to name network interfaces eth0, eth1, etc.
+	};
+
+	chosen {
+	// ^^^^^^^
+	// Another standard DT node. "chosen" passes information FROM the bootloader
+	// (U-Boot) TO the Linux kernel at boot time.
+	// It's like argv[] in C main() — passing arguments to the program being launched.
+
+		stdout-path = &lpuart1;
+		// ^^^^^^^^^^^^^^^^^^^^^^
+		// Tells the kernel: "send your early boot console output to lpuart1".
+		// lpuart1 = Low Power UART 1 on the i.MX93. This is the debug serial port
+		// (what you see on the USB-to-serial connector of the Symphony board).
+		// &lpuart1 is again a phandle — a reference to the lpuart1 node elsewhere.
+		// Without this, the kernel won't print anything during boot.
+		// In C terms: this is like setting stdout = uart1_file_handle;
+	};
+
+	reg_usdhc2_vmmc: regulator-usdhc2 {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// This defines a NEW node for a "fixed voltage regulator".
+	// Breaking down the syntax:
+	//   reg_usdhc2_vmmc   = the LABEL for this node (used with & elsewhere)
+	//   :                  = separates label from node name (DTS syntax)
+	//   regulator-usdhc2  = the NODE NAME (must match the compatible string pattern)
+	//   { ... }           = the node's body, containing properties
+	//
+	// A "regulator" in Linux/DT means a voltage rail — a power supply rail.
+	// This one controls the 3.3V supply to the SD card slot (USDHC2 = SD card controller 2).
+	// In hardware: it's a GPIO-controlled power switch (a transistor or load switch).
+	// When GPIO is asserted HIGH, the SD card gets 3.3V. When LOW, card is powered off.
+
+		compatible = "regulator-fixed";
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// "compatible" is THE most important DT property.
+		// It tells the kernel WHICH DRIVER to bind to this node.
+		// The kernel searches its driver table for a driver that matches this string.
+		// "regulator-fixed" = a built-in Linux driver for simple fixed-voltage regulators
+		// controlled by a GPIO.
+		// In C terms: think of compatible as the "class name" for polymorphism —
+		// it determines which vtable (set of function pointers) gets used.
+
+		pinctrl-names = "default";
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// This names the pin control states for this node.
+		// "default" = the state used during normal operation.
+		// This is a STRING ARRAY (list of strings). Here there's only one state.
+		// Other nodes might have: "default", "sleep", "gpio" — three states.
+		// Each named state maps to a pinctrl-N property below.
+
+		pinctrl-0 = <&pinctrl_reg_usdhc2_vmmc>;
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// pinctrl-0 corresponds to pinctrl-names[0] = "default".
+		// The value <&pinctrl_reg_usdhc2_vmmc> is a PHANDLE CELL.
+		//
+		// THE < > SYNTAX:
+		// In DTS, < > creates a "cell array" — a list of 32-bit integers.
+		// <5> = a single integer 5.
+		// <1 2 3> = three integers.
+		// <&foo> = a phandle (reference to another node, resolved to a number).
+		//
+		// So <&pinctrl_reg_usdhc2_vmmc> means:
+		// "store the phandle integer of the pinctrl_reg_usdhc2_vmmc node here"
+		// At boot, the pinctrl driver reads this and configures the GPIO18 pin
+		// (as defined in the pinctrl_reg_usdhc2_vmmc group further down in this file).
+
+		regulator-name = "VSD_3V3";
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// Human-readable name for this regulator.
+		// Shows up in: /sys/class/regulator/*/name on the running system.
+		// "VSD" = Voltage SD. "3V3" = 3.3 Volts. Pure informational.
+
+		regulator-min-microvolt = <3300000>;
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// Minimum voltage this regulator can supply, in MICROVOLTS.
+		// 3300000 µV = 3.3V.
+		// For a fixed regulator, min == max (it can only do one voltage).
+		// The < > again wraps a 32-bit integer cell.
+
+		regulator-max-microvolt = <3300000>;
+		// Same as above. max == min = 3.3V. Fixed. No adjustment possible.
+
+		gpio = <&gpio2 18 GPIO_ACTIVE_HIGH>;
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// This specifies WHICH GPIO pin controls this regulator's enable signal.
+		// The < > contains THREE values (a tuple):
+		//   &gpio2            = phandle to the GPIO controller node (GPIO bank 2)
+		//   18                = pin number within that GPIO bank (GPIO2_IO18)
+		//   GPIO_ACTIVE_HIGH  = polarity — assert the pin HIGH to enable the regulator
+		//
+		// GPIO_ACTIVE_HIGH is a MACRO (defined in <dt-bindings/gpio/gpio.h>).
+		// It expands to the integer 0.
+		// GPIO_ACTIVE_LOW would be 1.
+		// So in raw integers: <&gpio2 18 0> means the same thing.
+		// When the regulator driver wants to turn on the SD card power,
+		// it calls gpio_set_value(GPIO2_IO18, 1) — drives the pin HIGH.
+
+		startup-delay-us = <10000>;
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^
+		// After the GPIO is asserted, wait this many MICROSECONDS before
+		// telling the kernel the regulator is stable/ready.
+		// 10000 µs = 10 ms. This gives the voltage rail time to rise and settle.
+		// Capacitors on the board need time to charge up to 3.3V.
+		// If you skip this, the SD card might get probed before power is stable → errors.
+
+		enable-active-high;
+		// ^^^^^^^^^^^^^^^^^^
+		// This is a BOOLEAN PROPERTY — it has no value, just presence means TRUE.
+		// In DTS, a property with no = value is boolean (like a flag or a #define).
+		// "enable-active-high" = driving the GPIO HIGH enables the regulator.
+		// This works together with the GPIO_ACTIVE_HIGH above.
+		// In C: it's like #define ENABLE_ACTIVE_HIGH  (defined vs undefined).
+	};
+};
+// ^ closes the root node /{ }
+
+&eqos {
+// ^^^^^^
+// THE & OPERATOR AGAIN — this time used at the TOP LEVEL to MODIFY an existing node.
+// &eqos means: "find the node with label 'eqos' (defined in the included .dtsi files)
+// and ADD or OVERRIDE properties in it."
+//
+// eQOS = Ethernet Quality of Service — this is the FIRST Ethernet controller
+// on the i.MX93, which lives on the SOM itself (connected to the SOM's PHY).
+// We're reaching INTO the existing node to add the second PHY definition.
+//
+// In C terms: it's like having a struct defined in a header, and then in your .c file
+// you initialize some fields you left unset: my_struct.new_field = value;
+// You're not redefining the struct — you're augmenting it.
+
+	mdio {
+	// ^^^^^
+	// "mdio" is a CHILD NODE of eqos.
+	// MDIO = Management Data Input/Output — a serial bus used to configure
+	// Ethernet PHY chips (the physical layer transceivers).
+	// Think of MDIO as I2C but for Ethernet PHYs — it has a clock and data line.
+	// The mdio node is the bus; the ethernet-phy node below is a device on that bus.
+
+		ethphy1: ethernet-phy@5 {
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^
+		// ethphy1    = LABEL (used with &ethphy1 elsewhere)
+		// ethernet-phy = node name (generic DT name for PHY nodes)
+		// @5         = UNIT ADDRESS — the PHY's address on the MDIO bus (0-31)
+		// So this PHY responds at MDIO address 5.
+		// In C: it's like naming a struct at a specific memory address.
+		// The "@addr" convention appears on ALL addressable DT nodes.
+
+			compatible = "ethernet-phy-ieee802.3-c22";
+			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+			// This PHY is IEEE 802.3 clause 22 compliant.
+			// Clause 22 = the original 1000BASE-T PHY register map (32 registers, 16-bit).
+			// Tells the kernel to use the generic PHY driver (phy-generic.c).
+			// Some PHYs use clause 45 (10G+); those have a different compatible string.
+
+			device_type = "ethernet-phy";
+			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+			// Legacy property (older DTs used device_type extensively).
+			// Tells the kernel this is an Ethernet PHY. Mostly redundant now
+			// since compatible already tells you, but some drivers still check it.
+
+			reg = <5>;
+			// ^^^^^^^^^
+			// reg = the ADDRESS of this device on its parent bus.
+			// For MDIO: this is the PHY address (0–31). Here it's 5.
+			// This MUST match the @5 in the node name above. If they don't match,
+			// dtc will warn you.
+			// For memory-mapped peripherals, reg = <base_address size>.
+			// For I2C: reg = <i2c_7bit_address>.
+			// The meaning depends on the parent bus type.
+
+			at803x,eee-disabled;
+			// ^^^^^^^^^^^^^^^^^^^^
+			// Vendor-specific boolean property for the AT803x PHY family.
+			// "eee-disabled" = disable Energy Efficient Ethernet (EEE / IEEE 802.3az).
+			// EEE lets the PHY go into low-power mode during idle periods.
+			// It's disabled here — possibly due to interoperability issues.
+			// The "at803x," prefix is a vendor namespace (Atheros/QCA makes AT803x chips).
+			// Wait — but the PHY below is MxL8611x... The at803x properties might be
+			// present for compatibility or because this PHY also accepts those properties.
+
+			eee-broken-1000t;
+			// ^^^^^^^^^^^^^^^^^
+			// Boolean property. Tells the kernel: "EEE doesn't work correctly at 1Gbit/s
+			// on this PHY." The kernel will disable EEE negotiation for 1000BASE-T.
+			// These "broken" flags are common for PHYs with silicon bugs or
+			// non-standard behavior. Better to document in DT than hardcode in driver.
+
+			reset-gpios = <&pca9534 5 GPIO_ACTIVE_LOW>;
+			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+			// Specifies the GPIO that controls the PHY's hardware reset pin.
+			// Tuple of THREE values (same pattern as the regulator gpio above):
+			//   &pca9534       = phandle to PCA9534 — an I2C GPIO expander chip
+			//                    (it gives you 8 extra GPIO pins over I2C)
+			//   5              = pin 5 of the PCA9534
+			//   GPIO_ACTIVE_LOW = drive LOW to assert reset (reset = active low)
+			//
+			// GPIO_ACTIVE_LOW = 1 (the macro value).
+			// So this says: "to reset the PHY, drive PCA9534 pin 5 LOW."
+			// The PHY datasheet says its nRESET pin is active-low (requires a logic 0
+			// to trigger reset), hence GPIO_ACTIVE_LOW.
+
+			reset-assert-us = <15000>;
+			// ^^^^^^^^^^^^^^^^^^^^^^^^
+			// Hold the reset signal asserted (LOW) for at least 15000 µs = 15 ms.
+			// This is the minimum reset pulse width from the PHY datasheet.
+			// The Linux PHY reset framework uses this to know how long to hold reset.
+
+			reset-deassert-us = <100000>;
+			// ^^^^^^^^^^^^^^^^^^^^^^^^^^
+			// After releasing reset (driving HIGH), wait 100000 µs = 100 ms
+			// before trying to communicate with the PHY over MDIO.
+			// This is the PHY's "reset recovery time" — it needs time to initialize
+			// its internal state machine after coming out of reset.
+
+			mxl-8611x,led0_cfg = <(
+			// ^^^^^^^^^^^^^^^^^^^^^
+			// Vendor-specific property for the MaxLinear MxL8611x PHY.
+			// "mxl-8611x," = vendor namespace (MaxLinear).
+			// "led0_cfg" = configuration for LED pin 0 on the PHY.
+			// The value is a 32-bit integer built by ORing flags together.
+			//
+			// THE ( ) INSIDE < >:
+			// In DTS, you can write arithmetic expressions inside <( )>.
+			// The ( ) tells the compiler: "evaluate this expression as a single integer."
+			// The | operator is BITWISE OR — same as in C.
+			// So <(A | B | C)> means: compute A|B|C and store as one 32-bit cell.
+
+				MXL8611X_LEDX_CFG_LINK_UP_RX_ACT_ON |
+				// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+				// Macro defined in a DT bindings header file.
+				// Meaning: "turn LED0 ON when there is RX activity (receiving data)"
+				// These macros are defined in:
+				//   include/dt-bindings/net/mxl-8611x.h
+				// They are just integer constants with specific bit positions.
+
+				MXL8611X_LEDX_CFG_LINK_UP_TX_ACT_ON |
+				// Meaning: "turn LED0 ON when there is TX activity (transmitting data)"
+
+				MXL8611X_LEDX_CFG_TRAFFIC_ACT_BLINK_IND
+				// Meaning: "blink LED0 to indicate traffic activity"
+				// Combined: LED0 = activity LED (blinks on TX/RX traffic)
+			)>;
+			// )> closes the expression and the cell list.
+
+			mxl-8611x,led1_cfg = <(
+				MXL8611X_LEDX_CFG_LINK_UP_10MB_ON |
+				// LED1 ON when link is up at 10 Mbit/s
+				MXL8611X_LEDX_CFG_LINK_UP_100MB_ON |
+				// LED1 ON when link is up at 100 Mbit/s
+				MXL8611X_LEDX_CFG_LINK_UP_1GB_ON
+				// LED1 ON when link is up at 1 Gbit/s
+				// Combined: LED1 = link LED (solid when ANY speed link is up)
+			)>;
+		};
+	};
+};
+
+&fec {
+// ^^^^^
+// Augmenting the FEC (Fast Ethernet Controller) node.
+// FEC = the SECOND Ethernet controller on i.MX93 (legacy name from older i.MX chips).
+// This becomes eth1 in Linux (eth0 is eQOS).
+// The actual node is defined in the NXP SoC DTS file (imx93.dtsi).
+// Here we're configuring it for the Symphony board's second Ethernet port.
+
+	pinctrl-names = "default";
+	// Only one pin state needed for Ethernet.
+
+	pinctrl-0 = <&pinctrl_fec>;
+	// Reference to the pinctrl group defined below in the &iomuxc section.
+	// This tells the pinctrl driver: "configure these pins when FEC is active."
+
+	phy-mode = "rgmii";
+	// ^^^^^^^^^^^^^^^^^
+	// How the MAC (Media Access Controller) connects to the PHY chip.
+	// "rgmii" = Reduced Gigabit Media Independent Interface.
+	// RGMII uses 4-bit data buses (instead of MII's 8-bit) and is clocked at 125MHz
+	// for Gigabit. The i.MX93 FEC <-> MxL8611x PHY are wired as RGMII.
+	// Other options: "mii", "rmii", "sgmii", "2500base-x", etc.
+
+	phy-handle = <&ethphy1>;
+	// ^^^^^^^^^^^^^^^^^^^^^^
+	// Links the MAC (FEC controller) to its PHY (ethphy1 defined above in eqos mdio).
+	// &ethphy1 = phandle to the ethernet-phy@5 node.
+	// Wait — why is the PHY under eqos mdio but the FEC is using it?
+	// On i.MX93, the MDIO bus is physically part of the eQOS controller block,
+	// but the MDIO bus can be shared — fec uses eqos's MDIO to reach ethphy1.
+	// The phy-handle links them logically.
+
+	status = "okay";
+	// ^^^^^^^^^^^^^^
+	// THE MOST IMPORTANT BOOLEAN-LIKE PROPERTY in DTS.
+	// status = "okay"    → enable this peripheral (tell kernel to use it)
+	// status = "disabled" → disable it (kernel ignores it, no driver bound)
+	//
+	// In the SoC DTS (NXP's file), most peripherals are set to "disabled" by default.
+	// Board files (like this one) set status = "okay" for the ones they actually use.
+	// It's like a master switch. If you forget this, the peripheral won't work
+	// even if everything else is configured correctly.
+};
+
+&iomuxc {
+// ^^^^^^^^
+// IOMUXC = I/O Multiplexer Controller — the pin mux hardware on i.MX93.
+// Every physical pin on the SoC can be configured as one of many functions
+// (GPIO, UART, I2C, SPI, Ethernet, USB, etc.) — this is called pin multiplexing.
+// The IOMUXC block controls which function each pin has AND its electrical properties
+// (pull-up/down, drive strength, slew rate, Schmitt trigger, etc.).
+//
+// We're augmenting the iomuxc node to add our board-specific pin groups.
+
+	pinctrl_fec: fecgrp {
+	// ^^^^^^^^^^^^^^^^^^^
+	// pinctrl_fec = label (used with &pinctrl_fec)
+	// fecgrp      = node name (arbitrary, but convention is <name>grp)
+	// This defines a PIN GROUP — a set of pins and their configurations
+	// that are applied together as a unit.
+
+		fsl,pins = <
+		// ^^^^^^^^^
+		// "fsl,pins" = Freescale (NXP) vendor property for pin configuration.
+		// The < > contains pairs of values for each pin:
+		//   MACRO   CONFIG_VALUE
+		// Each pin takes TWO 32-bit integers = a 64-bit entry.
+		// So the entire list is N*2 cells.
+
+			MX93_PAD_ENET2_RD0__ENET1_RGMII_RD0		0x57e
+			// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+			// LEFT SIDE: MX93_PAD_ENET2_RD0__ENET1_RGMII_RD0
+			// This is a MACRO from NXP's header file:
+			//   arch/arm64/boot/dts/freescale/imx93-pinfunc.h
+			// The naming convention is:
+			//   MX93_PAD_<PHYSICAL_PAD_NAME>__<FUNCTION_NAME>
+			// So: physical pad ENET2_RD0 is muxed to function ENET1_RGMII_RD0.
+			// The macro expands to TWO integers: (mux_register_offset | mux_mode_value)
+			// The iomuxc driver writes these to configure the pin function.
+			//
+			// Wait — ENET2 pad but ENET1 function? Yes! On i.MX93, the second
+			// Ethernet PHY uses ENET2 pads but routes to the FEC (ENET1 in Linux).
+			// The naming is hardware-centric (pad name) vs software-centric (function).
+			//
+			// RIGHT SIDE: 0x57e
+			// This is the PIN CONFIGURATION VALUE — packed bit fields:
+			// Bit fields (i.MX93 specific, defined in the TRM):
+			//   [0:2]   = DSE  (Drive Strength Enable) — how strong the output driver is
+			//   [3]     = FSEL (Slew Rate) — how fast the signal edge transitions
+			//   [4]     = ODE  (Open Drain Enable) — for I2C-style wired-AND buses
+			//   [5]     = PUE  (Pull Up/Down Enable)
+			//   [6]     = PUS  (Pull Up/Down Select — 0=pull-down, 1=pull-up)
+			//   [7]     = HYS  (Schmitt trigger / Hysteresis)
+			//   [12]    = SION (Software Input On — forces input path active even in output mode)
+			//
+			// 0x57e in binary: 0101 0111 1110
+			// Let me decode: ...0x57e = bits 1,2,3,4,5,6,8,10 set
+			// Translation: strong drive, fast slew, pull-up enabled, hysteresis on.
+			// This makes sense for RGMII data pins running at 125MHz.
+
+			MX93_PAD_ENET2_RD1__ENET1_RGMII_RD1		0x57e
+			MX93_PAD_ENET2_RD2__ENET1_RGMII_RD2		0x57e
+			MX93_PAD_ENET2_RD3__ENET1_RGMII_RD3		0x57e
+			// ^^^ RD0-RD3 = RGMII Receive Data bits 0-3 (4-bit data bus, RX direction)
+
+			MX93_PAD_ENET2_RXC__ENET1_RGMII_RXC		0x5fe
+			// RXC = Receive Clock. Note the different config value: 0x5fe vs 0x57e.
+			// 0x5fe = 0101 1111 1110 — the clock pin gets slightly different settings
+			// (stronger drive, different slew) because clocks have timing requirements.
+
+			MX93_PAD_ENET2_RX_CTL__ENET1_RGMII_RX_CTL	0x57e
+			// RX_CTL = Receive Control (combines RX_DV and RX_ER in RGMII).
+
+			MX93_PAD_ENET2_TD0__ENET1_RGMII_TD0		0x57e
+			MX93_PAD_ENET2_TD1__ENET1_RGMII_TD1		0x57e
+			MX93_PAD_ENET2_TD2__ENET1_RGMII_TD2		0x57e
+			MX93_PAD_ENET2_TD3__ENET1_RGMII_TD3		0x57e
+			// TD0-TD3 = Transmit Data bits 0-3 (TX direction)
+
+			MX93_PAD_ENET2_TXC__ENET1_RGMII_TXC		0x5fe
+			// TXC = Transmit Clock (output from MAC to PHY). 0x5fe again (clock pin).
+
+			MX93_PAD_ENET2_TX_CTL__ENET1_RGMII_TX_CTL	0x57e
+			// TX_CTL = Transmit Control (TX_EN and TX_ER combined in RGMII).
+		>;
+		// > closes the cell list for fsl,pins.
+	};
+
+	pinctrl_lpi2c1_gpio: lpi2c1grp-gpio {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// A SECOND pin group for the SAME I2C1 pins — but configured as GPIO.
+	// Why? Because Linux has a feature called "I2C GPIO recovery":
+	// if an I2C slave holds the SDA line low and freezes the bus,
+	// the master can bit-bang SCL/SDA manually as GPIO pins to send extra clocks
+	// and unstick the slave.
+	// So the I2C pins are defined TWICE:
+	//   lpi2c1grp     = normal I2C function (LPI2C1_SCL, LPI2C1_SDA)
+	//   lpi2c1grp-gpio = same pins but configured as GPIO (GPIO1_IO00, GPIO1_IO01)
+	// The kernel switches between these states via pinctrl-0, pinctrl-1, pinctrl-2.
+
+		fsl,pins = <
+			MX93_PAD_I2C1_SCL__GPIO1_IO00			0x31e
+			// Physical pad I2C1_SCL, configured as GPIO1_IO00.
+			// 0x31e = different config — GPIO pins get different drive/pull settings.
+
+			MX93_PAD_I2C1_SDA__GPIO1_IO01			0x31e
+			// Physical pad I2C1_SDA, configured as GPIO1_IO01.
+		>;
+	};
+
+	pinctrl_lpi2c1: lpi2c1grp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Normal I2C1 pin configuration.
+
+		fsl,pins = <
+			MX93_PAD_I2C1_SCL__LPI2C1_SCL			0x40000b9e
+			// 0x40000b9e — note the VERY different config value!
+			// 0x40000000 = bit 30 set = SION (Software Input On).
+			// SION forces the input path active even when the pin is in output mode.
+			// For I2C, this is REQUIRED — the master must be able to read back SDA/SCL
+			// to detect bus collisions and do clock stretching.
+			// ERR052021 (an NXP errata) requires SION on I2C pins on i.MX93.
+			// The lower bits 0xb9e configure pull-up, drive strength, open-drain for I2C.
+
+			MX93_PAD_I2C1_SDA__LPI2C1_SDA			0x40000b9e
+		>;
+	};
+
+	pinctrl_lpi2c5: lpi2c5grp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Pin configuration for I2C5 (second I2C bus on the Symphony board).
+	// Uses GPIO_IO23 and GPIO_IO22 pads (general-purpose pads muxed as I2C5).
+
+		fsl,pins = <
+			MX93_PAD_GPIO_IO23__LPI2C5_SCL			0x40000b9e
+			MX93_PAD_GPIO_IO22__LPI2C5_SDA			0x40000b9e
+		>;
+	};
+
+	pinctrl_lpi2c5_gpio: lpi2c5grp-gpio {
+	// Same pattern as lpi2c1 — GPIO recovery mode for I2C5 bus.
+
+		fsl,pins = <
+			MX93_PAD_GPIO_IO23__GPIO2_IO23			0x31e
+			MX93_PAD_GPIO_IO22__GPIO2_IO22			0x31e
+		>;
+	};
+
+	pinctrl_reg_usdhc2_vmmc: regusdhc2vmmcgrp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Pin config for the GPIO that controls SD card power (the regulator we defined above).
+	// Only ONE pin needed — the GPIO that drives the power switch.
+
+		fsl,pins = <
+			MX93_PAD_GPIO_IO18__GPIO2_IO18			0x31e
+			// GPIO_IO18 pad configured as GPIO2_IO18.
+			// This is what the reg_usdhc2_vmmc node uses to switch 3.3V to SD card.
+		>;
+	};
+
+	pinctrl_uart1: uart1grp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Pin config for UART1 (the debug serial console).
+
+		fsl,pins = <
+			MX93_PAD_UART1_RXD__LPUART1_RX			0x31e
+			// UART1_RXD pad → LPUART1 receive data function.
+			// 0x31e = input pin config (pull, hysteresis, no strong drive needed for RX).
+
+			MX93_PAD_UART1_TXD__LPUART1_TX			0x31e
+			// UART1_TXD pad → LPUART1 transmit data function.
+		>;
+	};
+
+	/* need to config the SION for data and cmd pad, refer to ERR052021 */
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Block comment (/* */) referencing NXP Errata ERR052021.
+	// That errata says: on i.MX93, SD/MMC CMD and DATA pads MUST have SION bit set
+	// (bit 30 of the config, = 0x40000000) to work correctly at high speeds.
+	// This is a silicon bug workaround.
+
+	pinctrl_usdhc2: usdhc2grp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Pin config for SD card (uSDHC2 controller) at DEFAULT (low) speed.
+
+		fsl,pins = <
+			MX93_PAD_SD2_CLK__USDHC2_CLK		0x1582
+			// SD clock pin. 0x1582 = no SION (clock is output only, no readback needed).
+			// The hex value programs: drive strength, slew rate for clock output.
+
+			MX93_PAD_SD2_CMD__USDHC2_CMD		0x40001382
+			// CMD pin: 0x40001382 — note 0x40000000 = SION bit set (ERR052021 workaround).
+			// CMD is bidirectional (host sends commands, card sends responses on same line).
+			// SION required so the host can read back what it sends.
+
+			MX93_PAD_SD2_DATA0__USDHC2_DATA0	0x40001382
+			MX93_PAD_SD2_DATA1__USDHC2_DATA1	0x40001382
+			MX93_PAD_SD2_DATA2__USDHC2_DATA2	0x40001382
+			MX93_PAD_SD2_DATA3__USDHC2_DATA3	0x40001382
+			// DATA0-3: 4-bit SD bus data lines. All need SION (bidirectional).
+			// SD uses 4 data lines for normal speed (1-bit at very low speed).
+
+			MX93_PAD_SD2_VSELECT__USDHC2_VSELECT	0x51e
+			// VSELECT = Voltage Select pin.
+			// Controls whether the SD bus I/O runs at 3.3V (VSELECT=0) or 1.8V (VSELECT=1).
+			// UHS-I SD cards run at 1.8V for high speeds. This pin switches the I/O voltage.
+			// 0x51e = output-only config (no SION, just drive strength + pull).
+		>;
+	};
+
+	/* need to config the SION for data and cmd pad, refer to ERR052021 */
+	pinctrl_usdhc2_100mhz: usdhc2-100mhzgrp {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Same pins as above BUT with different config values for 100MHz operation (SDR50 mode).
+	// Faster speeds need stronger drive strength and different slew rates.
+	// Linux automatically switches to this pinctrl state when the SD card negotiates 100MHz.
+
+		fsl,pins = <
+			MX93_PAD_SD2_CLK__USDHC2_CLK		0x158e
+			// 0x158e vs 0x1582 — slightly stronger drive for 100MHz.
+			MX93_PAD_SD2_CMD__USDHC2_CMD		0x4000138e
+			MX93_PAD_SD2_DATA0__USDHC2_DATA0	0x4000138e
+			MX93_PAD_SD2_DATA1__USDHC2_DATA1	0x4000138e
+			MX93_PAD_SD2_DATA2__USDHC2_DATA2	0x4000138e
+			MX93_PAD_SD2_DATA3__USDHC2_DATA3	0x4000138e
+			MX93_PAD_SD2_VSELECT__USDHC2_VSELECT	0x51e
+		>;
+	};
+
+	/* need to config the SION for data and cmd pad, refer to ERR052021 */
+	pinctrl_usdhc2_200mhz: usdhc2-200mhzgrp {
+	// Same but for 200MHz (SDR104 / HS200 mode — UHS-I maximum speed).
+	// Even stronger drive, fastest slew rate.
+
+		fsl,pins = <
+			MX93_PAD_SD2_CLK__USDHC2_CLK			0x15fe
+			// 0x15fe — maximum drive strength + fastest slew for 200MHz clock.
+			MX93_PAD_SD2_CMD__USDHC2_CMD		0x400013fe
+			MX93_PAD_SD2_DATA0__USDHC2_DATA0	0x400013fe
+			MX93_PAD_SD2_DATA1__USDHC2_DATA1	0x400013fe
+			MX93_PAD_SD2_DATA2__USDHC2_DATA2	0x400013fe
+			MX93_PAD_SD2_DATA3__USDHC2_DATA3	0x400013fe
+			MX93_PAD_SD2_VSELECT__USDHC2_VSELECT		0x51e
+		>;
+	};
+};
+// ^ closes &iomuxc { }
+
+&lcdif {
+// ^^^^^^^
+// Augmenting the LCDIF (LCD Interface) node — the display controller on i.MX93.
+// LCDIF drives MIPI-DSI or LVDS display panels.
+
+	status = "okay";
+	// Enable the display controller.
+
+	assigned-clock-rates = <484000000>, <121000000>, <400000000>, <133333333>;
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// This sets the CLOCK FREQUENCIES for the LCDIF subsystem.
+	// "assigned-clock-rates" works together with "assigned-clocks" (defined in the
+	// SoC DTS) to configure the clock tree.
+	// The < > list contains FOUR values, one per clock:
+	//   484000000  = 484 MHz  (LCDIF pixel clock source, e.g., PLL)
+	//   121000000  = 121 MHz  (LCDIF pixel clock after divider — for the display panel)
+	//   400000000  = 400 MHz  (media PLL or bus clock)
+	//   133333333  = ~133 MHz (another divider output)
+	// These numbers are chosen to match the display panel's required pixel clock.
+	// Getting this wrong = corrupted display, wrong refresh rate, or no display at all.
+};
+
+&lpi2c1 {
+// ^^^^^^^^
+// Augmenting the LPI2C1 (Low Power I2C bus 1) node.
+// LPI2C = Low Power I2C — NXP's implementation of I2C with low-power features.
+// This is the I2C bus that connects to on-board chips on the Symphony carrier board.
+
+	#address-cells = <1>;
+	// ^^^^^^^^^^^^^^^^^^^
+	// #address-cells tells the kernel how many 32-bit integers make up the
+	// "reg" (address) property in CHILD nodes.
+	// <1> means child node addresses use ONE 32-bit cell.
+	// For I2C: that one cell is the 7-bit I2C address (e.g., <0x21>).
+	// For a memory bus it might be <2> (64-bit address = two 32-bit cells).
+	// This is a BUS PROPERTY that the kernel uses to interpret child nodes correctly.
+
+	#size-cells = <0>;
+	// ^^^^^^^^^^^^^^^^^^
+	// #size-cells = how many cells encode the SIZE in child node reg properties.
+	// <0> means no size field — I2C devices don't have a "size" (they're just at an address).
+	// For memory-mapped peripherals, this would be <1> (address + size).
+
+	clock-frequency = <400000>;
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// I2C bus speed in Hz. 400000 Hz = 400 kHz = Fast Mode I2C.
+	// Standard Mode = 100 kHz, Fast Mode = 400 kHz, Fast Mode Plus = 1 MHz.
+	// The LPI2C driver uses this to configure the clock divider registers.
+
+	pinctrl-names = "default", "sleep", "gpio";
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// THREE named states for this node's pins:
+	//   "default" (index 0) → normal I2C operation
+	//   "sleep"   (index 1) → low-power state (when system suspends)
+	//   "gpio"    (index 2) → GPIO mode for bus recovery
+	// Each name maps to a corresponding pinctrl-N property.
+
+	pinctrl-0 = <&pinctrl_lpi2c1>;
+	// State 0 ("default") → use the lpi2c1grp pin configuration (I2C function).
+	pinctrl-1 = <&pinctrl_lpi2c1_gpio>;
+	// State 1 ("sleep") → use GPIO config (pins tri-stated or configured safely for sleep).
+	pinctrl-2 = <&pinctrl_lpi2c1_gpio>;
+	// State 2 ("gpio") → same GPIO config (used for bit-bang recovery).
+
+	scl-gpios = <&gpio1 0 GPIO_ACTIVE_HIGH>;
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// For GPIO-based I2C recovery: which GPIO drives SCL manually.
+	// GPIO1_IO00 (same physical pin as I2C1_SCL, just controlled as GPIO).
+	// Used when the kernel needs to bit-bang the clock line to recover a stuck bus.
+
+	sda-gpios = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+	// Same for SDA: GPIO1_IO01 = I2C1_SDA physical pin, bit-banged as GPIO.
+
+	status = "okay";
+	// Enable this I2C bus.
+
+	pca6408: gpio@21 {
+	// ^^^^^^^^^^^^^^^^^
+	// A CHILD NODE = a device on this I2C bus.
+	// pca6408 = label
+	// gpio    = node name (generic name for GPIO expander nodes)
+	// @21     = I2C address 0x21 (in hex, without the 0x prefix in the @ part).
+	// This is an NXP PCA6408 / TI TCA6408 — 8-bit I2C GPIO expander.
+	// It gives 8 extra GPIO outputs over I2C (useful when the SoC runs out of GPIO pins).
+
+		compatible = "nxp,pcal6408", "ti,tca6408";
+		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		// TWO compatible strings! The kernel tries them IN ORDER:
+		//   1. Try "nxp,pcal6408" driver first (PCAL6408 has extra features)
+		//   2. Fall back to "ti,tca6408" if the first driver isn't available
+		// This is the DT fallback mechanism — useful for pin-compatible chips.
+		// It's like a try-catch: try the best driver, fall back to generic.
+
+		reg = <0x21>;
+		// I2C address = 0x21 (must match @21 in the node name).
+
+		gpio-controller;
+		// ^^^^^^^^^^^^^^^
+		// Boolean property — no value, just presence.
+		// Declares: "this node IS a GPIO controller (provides GPIO pins to the system)."
+		// Without this, the kernel won't register this chip as a GPIO provider.
+		// Other nodes can then reference these GPIOs with &pca6408 (like we did for the PHY reset).
+
+		#gpio-cells = <2>;
+		// ^^^^^^^^^^^^^^^^^^
+		// How many cells in a GPIO specifier from this controller.
+		// <2> means: <pin_number  flags>
+		// Example: <&pca6408 5 GPIO_ACTIVE_LOW> = pca6408, pin 5, active-low.
+		// This is why all GPIO references need 2 numbers after the phandle.
+		// (Some controllers use #gpio-cells = <1> for just a pin number.)
+
+		rgb_sel {
+		// ^^^^^^^^
+		// A GPIO HOG node — a child of the GPIO controller that pre-configures
+		// a GPIO pin at boot time without needing any driver to request it.
+		// "hog" = the driver "hogs" (permanently occupies) this GPIO line.
+
+			gpio-hog;
+			// Boolean: marks this as a GPIO hog node.
+
+			gpios = <7 GPIO_ACTIVE_HIGH>;
+			// Pin 7 of pca6408, active-high.
+			// Note: no &pca6408 here! That's because this node IS INSIDE pca6408's node.
+			// The parent is implied.
+
+			output-low;
+			// Boolean: drive this GPIO LOW at boot (and keep it LOW).
+			// output-high; would drive it HIGH.
+			// input; would configure as input.
+
+			line-name = "rgb_sel";
+			// Human-readable name for this GPIO line.
+			// Shows up in: gpioinfo (libgpiod tool) on the running system.
+		};
+
+		tpm_en {
+		// ^^^^^^^
+		// Another GPIO hog — this one for the TPM (Trusted Platform Module) enable/reset.
+
+			gpio-hog;
+			gpios = <4 GPIO_ACTIVE_HIGH>;
+			// Pin 4 of pca6408.
+
+			output-high;
+			// Drive HIGH = deassert the TPM reset (take TPM out of reset state).
+			// The comment says "Need to deassert the TPM2 reset signal."
+			// At power-on, TPM might be held in reset; this releases it.
+
+			line-name = "tpm_en";
+		};
+	};
+
+	st33ktpm2i: st33ktpm2i@2e {
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// An ST33 TPM (Trusted Platform Module) chip at I2C address 0x2E.
+	// TPM = security chip that stores cryptographic keys, measures boot integrity, etc.
+	// Used for secure boot, disk encryption (like a hardware keystore).
+
+		compatible = "tcg,tpm-tis-i2c";
+		// TPM Interface Specification (TIS) over I2C, standardized by TCG (Trusted Computing Group).
+		// The kernel's tpm_tis_i2c driver handles this.
+
+		reg = <0x2e>;
+		// I2C address 0x2E.
+	};
+};
+
+&lpi2c5 {
+// ^^^^^^^^
+// Second I2C bus — connects to the Symphony board's peripheral chips.
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+	clock-frequency = <400000>;
+	// Same I2C configuration as lpi2c1 above.
+
+	pinctrl-names = "default", "sleep", "gpio";
+	pinctrl-0 = <&pinctrl_lpi2c5>;
+	pinctrl-1 = <&pinctrl_lpi2c5_gpio>;
+	pinctrl-2 = <&pinctrl_lpi2c5_gpio>;
+	scl-gpios = <&gpio2 23 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+
+	pca9534: gpio@20 {
+	// ^^^^^^^^^^^^^^^^^^
+	// NXP PCA9534 = another I2C GPIO expander, at address 0x20.
+	// This one provides the GPIOs for: PHY reset, PHY power, PHY voltage select.
+
+		status = "okay";
+		compatible = "nxp,pca9534";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		eth1_phy_vsel_hog {
+		// ^^^^^^^^^^^^^^^^^^
+		// Controls the MxL8611x PHY's VDDIO voltage selection.
+		// VDDIO = the I/O power supply for the PHY's digital pins.
+
+			gpio-hog;
+			gpio-hog-optional;
+			// ^^^^^^^^^^^^^^^^
+			// "optional" means: if requesting this GPIO fails (e.g., pin is already used),
+			// don't crash — just skip it. Defensive programming in DT.
+
+			gpios = <6 0>;
+			// Pin 6 of pca9534. The "0" here = no flags (not GPIO_ACTIVE_LOW/HIGH macros,
+			// just raw 0 = active-high by convention, same as GPIO_ACTIVE_HIGH = 0).
+
+			output-high;
+			// Drive high = select 3.3V operation for PHY I/O (vs 1.8V).
+
+			line-name = "eth1_phy_vsel";
+		};
+
+		eth1_phy_pwr_hog {
+		// ^^^^^^^^^^^^^^^^^
+		// Controls power to the second Ethernet PHY.
+
+			gpio-hog;
+			gpio-hog-optional;
+			gpios = <7 0>;
+			output-high;
+			// Drive high = enable power to the PHY (power it on).
+			line-name = "eth1_phy_pwr";
+		};
+	};
+
+	ptn5150: ptn5150@3d {
+	// ^^^^^^^^^^^^^^^^^^^^^^
+	// NXP PTN5150 = USB Type-C CC Logic controller at I2C address 0x3D.
+	// CC (Configuration Channel) pins on USB-C determine:
+	//   - Cable orientation (which way the plug is inserted)
+	//   - Data role (host/device/DRP)
+	//   - Power role (source/sink)
+	// The PTN5150 monitors the CC pins and reports the state to the USB controller.
+
+		compatible = "nxp,ptn5150";
+		pinctrl-names = "default";
+		reg = <0x3d>;
+
+		i2c-bus = <0x4>;
+		// ^^^^^^^^^^^^^^
+		// Which I2C bus number this device is on (internal reference).
+		// 0x4 = bus 4. Used by the driver to identify itself.
+		// Note: this is a vendor-specific property for the PTN5150.
+
+		status = "okay";
+	};
+};
+
+&lpuart1 { /* console */
+// ^^^^^^^^^^
+// Augmenting LPUART1 — the debug UART (Low Power UART 1).
+// The /* console */ comment is just documentation — this IS the Linux serial console.
+// When you connect a USB-serial adapter to the Symphony board's debug port,
+// this is what you see: U-Boot output, kernel boot messages, and the Linux login prompt.
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1>;
+	// Apply the UART1 pin configuration (RXD + TXD pins).
+
+	status = "okay";
+	// Enable UART1.
+	// Combined with chosen { stdout-path = &lpuart1; } above,
+	// this is what makes printk() output appear on the serial port.
+};
+
+&usbotg1 {
+// ^^^^^^^^^
+// USB OTG1 = first USB controller on i.MX93.
+// OTG = On-The-Go — can act as EITHER a host (connect peripherals) OR a device (connect to a PC).
+// This is the USB-C port on the Symphony board.
+
+	dr_mode = "otg";
+	// ^^^^^^^^^^^^^^
+	// "otg" = Dual Role Device mode. The controller can dynamically switch between
+	// host and device mode based on what's connected (detected by PTN5150 CC logic).
+	// Other options: "host" (always host), "peripheral" (always device).
+
+	extcon = <&ptn5150>;
+	// ^^^^^^^^^^^^^^^^^
+	// extcon = External Connector — a framework for detecting connector events.
+	// Links this USB controller to the PTN5150 CC controller.
+	// When PTN5150 detects a USB-C plug and determines role (host/device),
+	// it notifies the USB controller via the extcon framework.
+	// The & is again a phandle reference to the ptn5150 node defined above.
+
+	hnp-disable;
+	// ^^^^^^^^^^
+	// Disable HNP = Host Negotiation Protocol.
+	// HNP is an OTG feature that lets roles swap mid-connection.
+	// Disabled here — modern USB-C handles role negotiation via CC pins instead.
+
+	srp-disable;
+	// Disable SRP = Session Request Protocol (OTG power management feature). Not needed.
+
+	adp-disable;
+	// Disable ADP = Attach Detection Protocol (OTG power detection). Not needed.
+
+	disable-over-current;
+	// Boolean: don't enable over-current protection hardware.
+	// Some boards don't have the over-current detect hardware wired.
+	// This tells the driver not to check for an over-current signal.
+
+	status = "okay";
+};
+
+&usbotg2 {
+// USB OTG2 = second USB controller. Used as a plain USB HOST (e.g., for USB-A connector).
+
+	dr_mode = "host";
+	// Always in host mode — acts as a USB hub/host controller.
+	// No OTG negotiation needed (it never becomes a device).
+
+	hnp-disable;
+	srp-disable;
+	adp-disable;
+	disable-over-current;
+	status = "okay";
+};
+
+&usdhc2 {
+// ^^^^^^^^
+// uSDHC2 = Ultra Secured Digital Host Controller 2 = the SD card controller.
+// This is what reads/writes the microSD card slot on the Symphony board.
+
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	// THREE pin states for different SD bus speeds:
+	//   "default"     → slow speed (up to ~25 MHz, DS/HS mode)
+	//   "state_100mhz" → 100 MHz (SDR50 / UHS-I)
+	//   "state_200mhz" → 200 MHz (SDR104 / UHS-I maximum)
+	// Linux switches between these automatically based on card capability.
+
+	pinctrl-0 = <&pinctrl_usdhc2>;
+	pinctrl-1 = <&pinctrl_usdhc2_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc2_200mhz>;
+	// Maps each named state to the corresponding pin group defined in &iomuxc above.
+
+	non-removable;
+	// ^^^^^^^^^^^^
+	// Boolean: the SD card is NOT removable (it's soldered or permanently inserted).
+	// Wait — but this is an SD CARD slot? Actually on this board, usdhc2 is connected
+	// to the WiFi/BT module (which uses SDIO) OR an SD slot, depending on variant.
+	// "non-removable" tells the kernel: don't poll for card insertion/removal events.
+	// The kernel won't generate hotplug events for this slot.
+
+	vmmc-supply = <&reg_usdhc2_vmmc>;
+	// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	// Which regulator supplies VMMC — the main SD card power (3.3V).
+	// &reg_usdhc2_vmmc = the regulator node we defined at the TOP of this file.
+	// The uSDHC driver uses this to:
+	//   - Power up the card before probing
+	//   - Power down the card on system suspend
+	//   - Sequence power correctly during voltage switching
+
+	bus-width = <4>;
+	// ^^^^^^^^^^^^^^^
+	// SD bus width: 1, 4, or 8 data lines.
+	// <4> = 4-bit bus (standard for SD cards and SDIO devices).
+	// 8-bit is used for eMMC. 1-bit is legacy/fallback only.
+	// We defined 4 data pins (DATA0-DATA3) in pinctrl — consistent with this.
+
+	status = "okay";
+
+	no-sdio;
+	// ^^^^^^
+	// Boolean: disable SDIO (SD I/O) card support on this slot.
+	// SDIO is used for WiFi/BT cards that attach via SD interface.
+	// Even though usdhc2 might physically connect to SDIO WiFi on some variants,
+	// here it's configured purely for SD CARD (block storage).
+
+	no-mmc;
+	// ^^^^^^
+	// Boolean: disable MMC (MultiMediaCard) support.
+	// MMC is the protocol used by eMMC (embedded flash storage).
+	// This slot is for SD cards only — not eMMC.
+	// Combined with no-sdio: this controller handles ONLY standard SD memory cards.
+};
+
+/*
+ * ============================================================
+ * SUMMARY: DTS KEY CONCEPTS CHEAT SHEET
+ * ============================================================
+ *
+ * SYNTAX THAT LOOKS LIKE C BUT IS DIFFERENT:
+ *
+ *   &name        → Phandle / reference to node with label "name"
+ *                  In C: like a pointer to a struct instance
+ *                  In DTS: used to REFERENCE or AUGMENT an existing node
+ *
+ *   <value>      → A cell (32-bit integer) in angle brackets
+ *                  <5>         → integer 5
+ *                  <&foo>      → phandle (resolved integer ID of node foo)
+ *                  <&foo 3 0>  → phandle + two integers (e.g., GPIO specifier)
+ *                  <(A | B)>   → expression evaluated to one integer
+ *
+ *   ;            → Terminates every property and node, just like in C
+ *
+ *   node-name { → Opens a node (like a struct)
+ *   };           → Closes a node
+ *
+ *   label: name  → Assigns label to a node (label used with & for phandles)
+ *
+ *   property;    → Boolean property (presence = true, absence = false)
+ *                  Like: #define FEATURE_ENABLED (no value)
+ *
+ *   property = "string";  → String property
+ *   property = <int>;     → Integer cell property
+ *   property = [hex];     → Byte array property
+ *
+ *   #address-cells / #size-cells → How to interpret child "reg" addresses
+ *
+ *   compatible   → Kernel driver binding (most important property!)
+ *   reg          → Address on parent bus (I2C addr, memory base addr, etc.)
+ *   status       → "okay" = enabled, "disabled" = kernel ignores this node
+ *
+ *   &node { }    → Augment/override an existing node defined elsewhere
+ *                  Like patching a C struct that was defined in a header file
+ *
+ *   #include     → Textual file inclusion, exactly like C
+ *
+ * ============================================================
+ */
