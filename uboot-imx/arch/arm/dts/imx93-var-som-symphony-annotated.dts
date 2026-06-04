@@ -150,6 +150,18 @@
 		// "store the phandle integer of the pinctrl_reg_usdhc2_vmmc node here"
 		// At boot, the pinctrl driver reads this and configures the GPIO18 pin
 		// (as defined in the pinctrl_reg_usdhc2_vmmc group further down in this file).
+		// The dtc compiler looks at the pinctrl_reg_usdhc2_vmmc node,
+		// assigns it a random unique ID (phandle, pointer handle) (e.g., 0x0000004A), 
+		// and replaces your syntax so the compiled binary essentially reads:pinctrl-0 = <0x0000004A>;
+		// Here is how the kernel bridges the gap between the phandle and the physical hardware during boot:
+		// The Link: the regulator driver sees pinctrl-0 = <0x0000004A>.
+        // The Lookup: The kernel searches its internal Device Tree database for node 0x0000004A.
+        // The Data Extraction: It finds the node and reads the data inside it, which translates to: 
+		// "We need to configure GPIO18."
+        // The Hardware Action: The kernel's pin controller driver takes that data, 
+		// calculates the actual physical silicon address for GPIO18 (e.g., 0x30200000), 
+		// and writes a binary value (like 0x5) directly into that SoC register to change the pin's electrical state.
+
 
 		regulator-name = "VSD_3V3";
 		// ^^^^^^^^^^^^^^^^^^^^^^^^^^^
