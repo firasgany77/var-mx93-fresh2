@@ -6,6 +6,22 @@
 // It's NOT C code - it's a comment used by license scanners (e.g., REUSE, FOSSology).
 // In DTS files (like in C), // means single-line comment.
 
+// .dtsi (Device Tree Source Include)
+//The "i" stands for Include. These files describe the common, 
+// immutable hardware blocks that are shared across many different designs.
+// Who writes it: Usually the silicon vendor (like NXP or TI) or the System-on-Module (SoM) manufacturer.
+// What it contains: The internal architecture of a System-on-Chip (SoC). 
+// It maps out the CPU cores, the base memory addresses, the internal interrupt controllers, 
+// and all the built-in peripheral controllers (I2C, SPI, UART, GPIO banks).
+// tate: By default, external-facing peripherals inside a .dtsi are usually marked with status = "disabled";
+// because the SoC manufacturer doesn't know if your specific board will actually wire anything up to those pins.
+
+// .dts: (Device Tree Source)
+// This is the top-level file. It represents the final, physical board sitting on your desk.
+// Who writes it: The hardware board designer or the embedded software engineer bringing up the custom carrier board.
+// State: It overrides the .dtsi nodes, flipping the required peripherals to status = "okay";.
+
+
 /*
  * Copyright 2021 NXP
  * Copyright 2023-2025 Variscite Ltd.
